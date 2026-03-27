@@ -5,6 +5,39 @@ import pandas as pd
 import streamlit as st
 from pybaseball import pitching_stats, team_batting, team_pitching
 
+from datetime import date
+
+def season_blend_weights(game_dt):
+    m = game_dt.month
+
+    if m <= 4:
+        return 0.15, 0.85
+    elif m == 5:
+        return 0.35, 0.65
+    elif m == 6:
+        return 0.50, 0.50
+    elif m == 7:
+        return 0.65, 0.35
+    else:
+        return 0.80, 0.20
+
+def blend_vals(current_val, prev_val, current_w, prev_w, fallback):
+    vals = []
+    weights = []
+
+    if current_val is not None:
+        vals.append(current_val)
+        weights.append(current_w)
+
+    if prev_val is not None:
+        vals.append(prev_val)
+        weights.append(prev_w)
+
+    if not vals:
+        return fallback
+
+    return sum(v*w for v, w in zip(vals, weights)) / sum(weights)
+
 st.set_page_config(page_title="MLB Betting Model", layout="wide")
 st.title("MLB Betting Model")
 st.caption("Auto-fill stats + DraftKings odds, fair odds, edge, Kelly, and best bet")
@@ -352,10 +385,21 @@ def find_event_odds(away_team: str, home_team: str, odds_events: list):
             return event
     return None
 
-def auto_fill_for_game(game: dict, season: int):
-    p_df = load_pitching_stats(season)
-    tb_df = load_team_batting(season)
-    tp_df = load_team_pitching(season)
+def auto_fill_for_game(game: dict, game_dt):
+    season = game_dt.year
+prev_season = season - 1
+current_w, prev_w = season_blend_weights(game_dt)
+p_df_cur = load_pitching_stats(season)
+p_df_prev = load_pitching_stats(prev_season)
+p_df = p_df_prev
+tb_df = tb_df_prev
+tp_df = tp_df_prev
+
+tb_df_cur = load_team_batting(season)
+tb_df_prev = load_team_batting(prev_season)
+
+tp_df_cur = load_team_pitching(season)
+tp_df_prev = load_team_pitching(prev_season)
 
     away_pitch_row = find_pitcher_row(p_df, game["away_pitcher"])
     home_pitch_row = find_pitcher_row(p_df, game["home_pitcher"])
@@ -460,7 +504,7 @@ with c3:
     if st.button("Auto-fill stats + DK odds", use_container_width=True):
         if selected_label != "Manual entry":
             game = next(g for g in games if g["label"] == selected_label)
-            filled = auto_fill_for_game(game, game_date.year)
+            filled = auto_fill_for_game(game, game_date)
             for k, v in filled.items():
                 st.session_state[k] = v
             st.success("Auto-fill complete.")
